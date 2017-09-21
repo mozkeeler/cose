@@ -1,11 +1,9 @@
-extern crate sha2;
-extern crate verify_signed_digest;
+extern crate verify_signature;
 
-use sha2::Digest;
 use std::os::raw;
 use std::ptr;
 use std::sync::{Once, ONCE_INIT};
-use verify_signed_digest as verify;
+use verify_signature as verify;
 
 static START: Once = ONCE_INIT;
 
@@ -69,13 +67,9 @@ fn test_rfc6979_test_vector_1() {
                                0xc7, 0xa1, 0xb6, 0xe2, 0x9f, 0x65, 0xf3, 0xe9, 0x00, 0xdb, 0xb9,
                                0xaf, 0xf4, 0x06, 0x4d, 0xc4, 0xab, 0x2f, 0x84, 0x3a, 0xcd,
                                0xa8];
-    let mut hasher = sha2::Sha256::default();
-    hasher.input(b"sample");
-    let digest = hasher.result();
-    let signed_digest = verify::SignedDigest::new(&digest.as_slice(),
-                                                  verify::DigestAlgorithm::SHA256, &signature);
-    assert!(verify::verify_signed_digest(signed_digest, NIST_P256_TEST_SPKI,
-                                         verify::KeyType::EC).is_ok());
+    let payload = b"sample";
+    assert!(verify::verify_signature(verify::SignatureAlgorithm::ES256, NIST_P256_TEST_SPKI,
+                                     payload, &signature).is_ok());
 }
 
 #[test]
@@ -96,13 +90,9 @@ fn test_rfc6979_test_vector_2() {
                    0x02, 0x20, 0x01, 0x9f, 0x41, 0x13, 0x74, 0x2a, 0x2b, 0x14, 0xbd, 0x25, 0x92,
                                0x6b, 0x49, 0xc6, 0x49, 0x15, 0x5f, 0x26, 0x7e, 0x60, 0xd3, 0x81,
                                0x4b, 0x4c, 0x0c, 0xc8, 0x42, 0x50, 0xe4, 0x6f, 0x00, 0x83];
-    let mut hasher = sha2::Sha256::default();
-    hasher.input(b"test");
-    let digest = hasher.result();
-    let signed_digest = verify::SignedDigest::new(&digest.as_slice(),
-                                                  verify::DigestAlgorithm::SHA256, &signature);
-    assert!(verify::verify_signed_digest(signed_digest, NIST_P256_TEST_SPKI,
-                                         verify::KeyType::EC).is_ok());
+    let payload = b"test";
+    assert!(verify::verify_signature(verify::SignatureAlgorithm::ES256, NIST_P256_TEST_SPKI,
+                                     payload, &signature).is_ok());
 }
 
 #[test]
@@ -125,13 +115,9 @@ fn test_tampered_signature() {
                    0x02, 0x20, 0x01, 0x9f, 0x41, 0x13, 0x74, 0x2a, 0x2b, 0x14, 0xbd, 0x25, 0x92,
                                0x6b, 0x49, 0xc6, 0x49, 0x15, 0x6f, 0x26, 0x7e, 0x60, 0xd3, 0x81,
                                0x4b, 0x4c, 0x0c, 0xc8, 0x42, 0x50, 0xe4, 0x6f, 0x00, 0x83];
-    let mut hasher = sha2::Sha256::default();
-    hasher.input(b"test");
-    let digest = hasher.result();
-    let signed_digest = verify::SignedDigest::new(&digest.as_slice(),
-                                                  verify::DigestAlgorithm::SHA256, &signature);
-    assert!(verify::verify_signed_digest(signed_digest, NIST_P256_TEST_SPKI,
-                                         verify::KeyType::EC).is_err()); // TODO: match specific error
+    let payload = b"test";
+    assert!(verify::verify_signature(verify::SignatureAlgorithm::ES256, NIST_P256_TEST_SPKI,
+                                     payload, &signature).is_err()); // TODO: match specific error
 }
 
 #[test]
@@ -153,11 +139,7 @@ fn test_tampered_message() {
                    0x02, 0x20, 0x01, 0x9f, 0x41, 0x13, 0x74, 0x2a, 0x2b, 0x14, 0xbd, 0x25, 0x92,
                                0x6b, 0x49, 0xc6, 0x49, 0x15, 0x5f, 0x26, 0x7e, 0x60, 0xd3, 0x81,
                                0x4b, 0x4c, 0x0c, 0xc8, 0x42, 0x50, 0xe4, 0x6f, 0x00, 0x83];
-    let mut hasher = sha2::Sha256::default();
-    hasher.input(b"testTAMPERED");
-    let digest = hasher.result();
-    let signed_digest = verify::SignedDigest::new(&digest.as_slice(),
-                                                  verify::DigestAlgorithm::SHA256, &signature);
-    assert!(verify::verify_signed_digest(signed_digest, NIST_P256_TEST_SPKI,
-                                         verify::KeyType::EC).is_err()); // TODO: match specific error
+    let payload = b"testTAMPERED";
+    assert!(verify::verify_signature(verify::SignatureAlgorithm::ES256, NIST_P256_TEST_SPKI,
+                                     payload, &signature).is_err()); // TODO: match specific error
 }

@@ -1,6 +1,7 @@
-verify-signed-digest
-====================
-verify-signed-digest is a wrapper around the NSS function VFY_VerifyDigestDirect. It is probably
-most useful if your application or library is already using NSS. In particular, this library makes
-no effort to ensure that NSS has been initialized (or that it won't be shut down) prior to calling
-VFY_VerifyDigestDirect, meaning that consumers of this library must enforce this.
+verify-signature
+================
+verify-signature is a utility library to verify public-key signatures over arbitrary data. The
+underlying implementation is NSS, so it is probably most useful if your application or library is
+already using NSS. In particular, this library makes no effort to ensure that NSS has been
+initialized (or that it won't be shut down) prior to using it, meaning that consumers of this
+library must enforce this.

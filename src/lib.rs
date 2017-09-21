@@ -2,4 +2,4 @@
 
 mod verify;
 
-pub use self::verify::{verify_signed_digest, SignedDigest, DigestAlgorithm, KeyType, VerifyError};
+pub use self::verify::{verify_signature, SignatureAlgorithm, VerifyError};
