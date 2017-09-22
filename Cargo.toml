@@ -1,11 +1,11 @@
 [package]
-name = "verify-signature"
+name = "cose"
 version = "0.1.0"
 authors = ["David Keeler <mozkeeler@gmail.com>"]
-description = "verify a signature"
+description = "implements some of RFC 8152 (COSE - CBOR Object Signing and Encryption)"
 license = "MPL-2.0"
 categories = ["cryptography"]
-keywords = ["signature", "verification"]
+keywords = ["signature", "verification", "COSE"]
 
 [dependencies]
 scopeguard = "0.3.2"

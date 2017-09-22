@@ -1,7 +1,8 @@
-verify-signature
-================
-verify-signature is a utility library to verify public-key signatures over arbitrary data. The
-underlying implementation is NSS, so it is probably most useful if your application or library is
-already using NSS. In particular, this library makes no effort to ensure that NSS has been
-initialized (or that it won't be shut down) prior to using it, meaning that consumers of this
-library must enforce this.
+cose
+====
+cose implements parts of RFC 8152 (COSE - CBOR Object Signing and Encryption) (CBOR is Concise
+Binary Object Representation - RFC 7049). In particular, cose will decode and verify a COSE_Sign
+structure. The underlying cryptography implementation is NSS, so it is probably most useful if your
+application or library is already using NSS. In particular, this library makes no effort to ensure
+that NSS has been initialized (or that it won't be shut down) prior to using it, meaning that
+consumers of this library must enforce this.
