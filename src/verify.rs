@@ -1,8 +1,11 @@
 use std::os::raw;
 use std::ptr;
+use std::slice;
+use std::mem;
 
 /// An enum identifying supported signature algorithms. Currently only ECDSA with SHA256 (ES256) and
-/// RSASSA-PSS with SHA-256 (PS256) are supported.
+/// RSASSA-PSS with SHA-256 (PS256) are supported. Note that with PS256, the salt length is defined
+/// to be 32 bytes.
 pub enum SignatureAlgorithm {
     ES256,
     PS256,
@@ -27,11 +30,34 @@ impl SECItem {
     }
 }
 
+#[repr(C)]
+struct CkRsaPkcsPssParams { // Called CK_RSA_PKCS_PSS_PARAMS in NSS
+    hash_alg: CkMechanismType, // Called hashAlg in NSS
+    mgf: CkRsaPkcsMgfType,
+    s_len: raw::c_ulong, // Called sLen in NSS
+}
+
+impl CkRsaPkcsPssParams {
+    fn new() -> CkRsaPkcsPssParams {
+        CkRsaPkcsPssParams {
+            hash_alg: CKM_SHA256,
+            mgf: CKG_MGF1_SHA256,
+            s_len: 32,
+        }
+    }
+}
+
 // TODO: link to NSS source where these are defined
 type SECOidTag = raw::c_uint; // TODO: actually an enum - is this the right size?
-const SEC_OID_PKCS1_RSA_ENCRYPTION: SECOidTag = 16;
 const SEC_OID_SHA256: SECOidTag = 191;
-const SEC_OID_ANSIX962_EC_PUBLIC_KEY: SECOidTag = 200;
+
+type CkMechanismType = raw::c_ulong; // called CK_MECHANISM_TYPE in NSS
+const CKM_ECDSA: CkMechanismType = 0x00001041;
+const CKM_RSA_PKCS_PSS: CkMechanismType = 0x0000000D;
+const CKM_SHA256: CkMechanismType = 0x00000250;
+
+type CkRsaPkcsMgfType = raw::c_ulong; // called CK_RSA_PKCS_MGF_TYPE in NSS
+const CKG_MGF1_SHA256: CkRsaPkcsMgfType = 0x00000002;
 
 type SECStatus = raw::c_int; // TODO: enum - right size?
 const SEC_SUCCESS: SECStatus = 0; // Called SECSuccess in NSS
@@ -41,17 +67,21 @@ enum CERTSubjectPublicKeyInfo {}
 
 enum SECKEYPublicKey {}
 
+const SHA256_LENGTH: usize = 32;
+
 // TODO: ugh this will probably have a platform-specific name...
 #[link(name="nss3")]
 extern "C" {
-    fn VFY_VerifyDataDirect(buf: *const u8,
-                            len: raw::c_int,
-                            key: *const SECKEYPublicKey,
-                            sig: *const SECItem,
-                            pubkAlg: SECOidTag,
-                            hashAlg: SECOidTag,
-                            hash: *const SECOidTag,
-                            wincx: *const raw::c_void) -> SECStatus;
+    fn PK11_HashBuf(hashAlg: SECOidTag,
+                    out: *mut u8,
+                    data_in: *const u8, // called "in" in NSS
+                    len: raw::c_int) -> SECStatus;
+    fn PK11_VerifyWithMechanism(key: *const SECKEYPublicKey,
+                                mechanism: CkMechanismType,
+                                param: *const SECItem,
+                                sig: *const SECItem,
+                                hash: *const SECItem,
+                                wincx: *const raw::c_void) -> SECStatus;
 
     fn SECKEY_DecodeDERSubjectPublicKeyInfo(spkider: *const SECItem)
        -> *const CERTSubjectPublicKeyInfo;
@@ -69,7 +99,6 @@ pub enum VerifyError {
     SignatureVerificationFailed,
 }
 
-// TODO: verify keys (e.g. RSA size, EC curve)...
 /// Main entrypoint for verification. Given a signature algorithm, the bytes of a subject public key
 /// info, a payload, and a signature over the payload, returns a result based on the outcome of
 /// decoding the subject public key info and running the signature verification algorithm on the
@@ -80,6 +109,15 @@ pub fn verify_signature(signature_algorithm: SignatureAlgorithm, spki: &[u8], pa
         return Err(VerifyError::InputTooLarge);
     }
     let len: raw::c_int = payload.len() as raw::c_int;
+    let mut hash_buf = vec![0; SHA256_LENGTH];
+    let hash_result = unsafe {
+        PK11_HashBuf(SEC_OID_SHA256, hash_buf.as_mut_ptr(), payload.as_ptr(), len)
+    };
+    if hash_result != SEC_SUCCESS {
+        return Err(VerifyError::LibraryFailure);
+    }
+    let hash_item = SECItem::maybe_new(hash_buf.as_slice())?;
+
     let spki_item = SECItem::maybe_new(spki)?;
     // TODO: helper/macro for pattern of "call unsafe function, check null, defer unsafe release"?
     let spki_handle = unsafe {
@@ -89,24 +127,35 @@ pub fn verify_signature(signature_algorithm: SignatureAlgorithm, spki: &[u8], pa
         return Err(VerifyError::DecodingSPKIFailed);
     }
     defer!(unsafe { SECKEY_DestroySubjectPublicKeyInfo(spki_handle); });
-    let pubkey = unsafe {
+    let key = unsafe {
         SECKEY_ExtractPublicKey(spki_handle)
     };
-    if pubkey.is_null() {
-        return Err(VerifyError::LibraryFailure); // TODO: double-check that this can only fail if the library fails
+    if key.is_null() {
+        // TODO: double-check that this can only fail if the library fails
+        return Err(VerifyError::LibraryFailure);
     }
-    defer!(unsafe { SECKEY_DestroyPublicKey(pubkey); });
+    defer!(unsafe { SECKEY_DestroyPublicKey(key); });
     let signature_item = SECItem::maybe_new(signature)?;
-    let pubk_alg = match signature_algorithm {
-        SignatureAlgorithm::ES256 => SEC_OID_ANSIX962_EC_PUBLIC_KEY,
-        SignatureAlgorithm::PS256 => SEC_OID_PKCS1_RSA_ENCRYPTION,
+    let mechanism = match signature_algorithm {
+        SignatureAlgorithm::ES256 => CKM_ECDSA,
+        SignatureAlgorithm::PS256 => CKM_RSA_PKCS_PSS,
     };
-    let hash_alg = SEC_OID_SHA256;
-    let null_hash_ptr: *const SECOidTag = ptr::null();
+    let rsa_pss_params = CkRsaPkcsPssParams::new();
+    // This isn't entirely NSS' fault, but it mostly is.
+    let rsa_pss_params_ptr: *const CkRsaPkcsPssParams = &rsa_pss_params;
+    let rsa_pss_params_ptr: *const u8 = rsa_pss_params_ptr as *const u8;
+    let rsa_pss_params_bytes = unsafe {
+        slice::from_raw_parts(rsa_pss_params_ptr, mem::size_of::<CkRsaPkcsPssParams>())
+    };
+    let rsa_pss_params_secitem = SECItem::maybe_new(rsa_pss_params_bytes)?;
+    let params_item: *const SECItem = match signature_algorithm {
+        SignatureAlgorithm::ES256 => ptr::null(),
+        SignatureAlgorithm::PS256 => &rsa_pss_params_secitem,
+    };
     let null_cx_ptr: *const raw::c_void = ptr::null();
     let result = unsafe {
-        VFY_VerifyDataDirect(payload.as_ptr(), len, pubkey, &signature_item, pubk_alg, hash_alg,
-                             null_hash_ptr, null_cx_ptr)
+        PK11_VerifyWithMechanism(key, mechanism, params_item, &signature_item, &hash_item,
+                                 null_cx_ptr)
     };
     match result {
         SEC_SUCCESS => Ok(()),
