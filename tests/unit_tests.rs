@@ -1,9 +1,9 @@
-extern crate verify_signature;
+extern crate cose;
 
 use std::os::raw;
 use std::ptr;
 use std::sync::{Once, ONCE_INIT};
-use verify_signature as verify;
+use cose as verify;
 
 static START: Once = ONCE_INIT;
 
